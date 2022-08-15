@@ -871,7 +871,7 @@ static ncclResult_t create_nccl_ofi_comp_for_dev(int dev, struct fi_info *nic_in
 	}
 
 	/* Initialise tag and num_cqes */
-	nccl_ofi_component[dev]->tag = 0;
+	nccl_ofi_component[dev]->tag = 256;
 	nccl_ofi_component[dev]->num_cqes = NCCL_OFI_MAX_REQUESTS;
 	nccl_ofi_component[dev]->prov_name = prov->fabric_attr->prov_name;
 
@@ -2770,8 +2770,15 @@ static ncclResult_t ofi_isend(void *sendComm, void* data, int size,
 	 * Try sending data to remote EP; Return NULL request
 	 * if not able to send.
 	 */
+#if 0
 	rc = fi_tsend(sComm->local_ep, data, size, desc,
 		      sComm->remote_ep, sComm->tag, &req->ctx);
+#else
+	assert(tag < 256);
+	rc = fi_tsend(sComm->local_ep, data, size, desc,
+		      sComm->remote_ep, tag, &req->ctx);
+#endif
+	//printf("ofi_isend  tag=0x%016llx\n", tag << 8);
 	if (OFI_UNLIKELY(rc == -FI_EAGAIN)) {
 		/* Return NULL */
 		*request = NULL;
@@ -2868,8 +2875,14 @@ static ncclResult_t ofi_irecv(void* recvComm, void* buffer, int size,
 		 */
 
 		/* Try posting buffer to local EP */
+#if 0
 		rc = fi_trecv(rComm->local_ep, buffers[recv_n], sizes[recv_n],
 			      desc, FI_ADDR_UNSPEC, rComm->tag, 0, &req->ctx);
+#else
+		assert(tags[recv_n] < 256);
+		rc = fi_trecv(rComm->local_ep, buffers[recv_n], sizes[recv_n],
+			      desc, FI_ADDR_UNSPEC, tags[recv_n], 0, &req->ctx);
+#endif
 		if (rc == -FI_EAGAIN) {
 			/* Return NULL request */
 			*request = NULL;
@@ -2918,7 +2931,7 @@ exit:
 	return ret;
 }
 
-static ncclResult_t ofi_test(void* request, int* done, int* size)
+static ncclResult_t ofi_test(void* request, int* done, int* sizes)
 {
 	ncclResult_t ret = ncclSuccess;
 
@@ -2947,8 +2960,8 @@ static ncclResult_t ofi_test(void* request, int* done, int* size)
 	/* Determine whether the request has finished and free if done */
 	if (OFI_LIKELY(req->state == NCCL_OFI_REQ_COMPLETED ||
 		       req->state == NCCL_OFI_REQ_ERROR)) {
-		if (size)
-			*size = req->size;
+		if (sizes)
+			*sizes = req->size;
 		/* Mark as done */
 		*done = 1;
 		free_nccl_ofi_req(req, true);
