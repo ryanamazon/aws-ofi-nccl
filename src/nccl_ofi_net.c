@@ -160,10 +160,11 @@ static const char *nccl_ofi_req_direction_str(nccl_ofi_req_state_t state)
 static const char *nccl_ofi_request_str(nccl_ofi_req_t *req)
 {
 	static char buf[256];
-	snprintf(buf, sizeof(buf), "{ buffer_index: %lu, dev: %d, size: %zu, state: %s, direction: %s }",
+	snprintf(buf, sizeof(buf), "{ buffer_index: %lu, dev: %d, nrecvs: %zu, cmpltdrecvs: %zu, state: %s, direction: %s }",
 		req->buffer_index,
 		req->dev,
-		req->size,
+		req->num_recvs,
+		req->completed_recvs,
 		nccl_ofi_req_state_str(req->state),
 		nccl_ofi_req_direction_str(req->direction)
 	);
@@ -217,7 +218,10 @@ static inline void zero_nccl_ofi_req(nccl_ofi_req_t *req)
 	memset(&req->ctx, 0, sizeof(struct fi_context));
 
 	req->dev = -1;
-	req->size = 0;
+	req->completions[0].size = 0;
+	req->completed_recvs = 0;
+	memset(req->completions, 0, NCCL_OFI_MAX_RECVS * sizeof(nccl_ofi_req_completions_t));
+	req->num_recvs = 0;
 
 	req->state = NCCL_OFI_REQ_CREATED;
 
@@ -970,8 +974,35 @@ static inline ncclResult_t process_completions(
 			goto exit;
 		}
 
-		req->state = NCCL_OFI_REQ_COMPLETED;
-		req->size = cq_entry[comp_idx].len;
+		uint64_t nccl_tag = (cq_entry[comp_idx].tag >> 8) & 0xff;
+		
+		int recv_index;
+		for(recv_index = 0; recv_index < req->num_recvs; recv_index++) {
+			if(req->completions[recv_index].nccl_recv_tag == nccl_tag) {
+				if (req->completions[recv_index].size != 0) {
+					NCCL_OFI_WARN("duplicated completion\n");
+				}
+				req->completions[recv_index].size = cq_entry[comp_idx].len;
+				req->completed_recvs++;
+				break;
+			}
+		}
+		if (req->num_recvs && recv_index == req->num_recvs) {
+			//uint64_t ofi_tag = (cq_entry[comp_idx].tag >> 0) & 0xff;
+			//printf("nccl tag not found req->num_recvs=%d recv_index=%d ofi_tag=%d tag=%d nccl_recv_tags[0]=%d,%d\n", req->num_recvs, recv_index, ofi_tag, nccl_tag, req->completions[0].nccl_recv_tags, req->completions[1].nccl_recv_tags);
+		}
+
+		/*
+		 * For completions that originate from ofi_irecv, req->completed_recvs will be incremented with each
+		 * completion until it reaches req->num_recvs, at this point this conditional will mark the request
+		 * as completed, and ofi_test will return done and free it when it is called.
+		 *
+		 * For completions that do not originate from ofi_irecv, there is only a single completion call and num_recvs is 0,
+		 * so the conditional always marks the request completed.
+		 */
+		if (req->num_recvs == req->completed_recvs) {
+			req->state = NCCL_OFI_REQ_COMPLETED;
+		}
 
 		/* Determine if this is control message */
 		if (OFI_UNLIKELY(cq_entry[comp_idx].tag & control_bit_mask)) {
@@ -1045,7 +1076,7 @@ static ncclResult_t ofi_process_cq(nccl_ofi_t *nccl_ofi_comp)
 					(long)err_buffer.len,
 					nccl_ofi_request_str(req));
 			req->state = NCCL_OFI_REQ_ERROR;
-			req->size = err_buffer.len;
+			//req->size = err_buffer.len; ???
 		}
 		else if (rc == -FI_EAGAIN) {
 			/* No completions to process */
@@ -2770,8 +2801,10 @@ static ncclResult_t ofi_isend(void *sendComm, void* data, int size,
 	 * Try sending data to remote EP; Return NULL request
 	 * if not able to send.
 	 */
+
 	rc = fi_tsend(sComm->local_ep, data, size, desc,
-		      sComm->remote_ep, sComm->tag, &req->ctx);
+		      sComm->remote_ep, sComm->tag | (tag << 8), &req->ctx);
+
 	if (OFI_UNLIKELY(rc == -FI_EAGAIN)) {
 		/* Return NULL */
 		*request = NULL;
@@ -2854,7 +2887,7 @@ static ncclResult_t ofi_irecv(void* recvComm, void* buffer, int size,
 	}
 
 	/* Currently, plugin doesn't support grouped receives */
-	assert(n == 1);
+	assert(n > 0 && n <= NCCL_OFI_MAX_RECVS);
 	for (int recv_n = 0; recv_n < n; recv_n++) {
 		void *desc = NULL;
 
@@ -2868,8 +2901,10 @@ static ncclResult_t ofi_irecv(void* recvComm, void* buffer, int size,
 		 */
 
 		/* Try posting buffer to local EP */
+
+		req->completions[recv_n].nccl_recv_tag = tags[recv_n]; // memcpy?
 		rc = fi_trecv(rComm->local_ep, buffers[recv_n], sizes[recv_n],
-			      desc, FI_ADDR_UNSPEC, rComm->tag, 0, &req->ctx);
+			      desc, FI_ADDR_UNSPEC, rComm->tag | (tags[recv_n] << 8), 0, &req->ctx);
 		if (rc == -FI_EAGAIN) {
 			/* Return NULL request */
 			*request = NULL;
@@ -2918,7 +2953,7 @@ exit:
 	return ret;
 }
 
-static ncclResult_t ofi_test(void* request, int* done, int* size)
+static ncclResult_t ofi_test(void* request, int* done, int* sizes)
 {
 	ncclResult_t ret = ncclSuccess;
 
@@ -2930,6 +2965,7 @@ static ncclResult_t ofi_test(void* request, int* done, int* size)
 
 	nccl_ofi_req_t *req = (nccl_ofi_req_t *)request;
 	nccl_ofi_t *nccl_ofi_comp = NULL;
+	int num_sizes = req->num_recvs ? req->num_recvs : 1;
 
 	/* Progress NCCL OFI in order to process completions */
 	nccl_ofi_comp = nccl_ofi_component[req->dev];
@@ -2947,8 +2983,17 @@ static ncclResult_t ofi_test(void* request, int* done, int* size)
 	/* Determine whether the request has finished and free if done */
 	if (OFI_LIKELY(req->state == NCCL_OFI_REQ_COMPLETED ||
 		       req->state == NCCL_OFI_REQ_ERROR)) {
-		if (size)
-			*size = req->size;
+		/*
+		 * NCCL_OFI_REQ_COMPLETED must be the same as doing all num_completions
+		 * unless there's an error.  req->num_recvs is positive only in the case 
+		 * where the completion is from ofi_irecv.
+		 */
+		assert(req->state == NCCL_OFI_REQ_ERROR || req->num_recvs == req->num_completions);
+		if (sizes && req->state == NCCL_OFI_REQ_COMPLETED) {
+			for (int recv_index = 0; recv_index < num_sizes; recv_index++) {
+				sizes[recv_index] = req->completions[recv_index].size;
+			}
+		}
 		/* Mark as done */
 		*done = 1;
 		free_nccl_ofi_req(req, true);
@@ -3007,7 +3052,7 @@ static ncclResult_t ofi_iflush(void* recvComm, void* buffer, int size,
 
 #if (NCCL_VERSION_CODE >= NCCL_VERSION(2, 12, 0)) /* Support NCCL v2.12 */
 	/* Plugin only supports one receive per request */
-	assert(n == 1);
+	assert(n > 0 && n <= NCCL_OFI_MAX_RECVS);
 
 	/*
 	 * Find the non-zero request for which we will issue flush.

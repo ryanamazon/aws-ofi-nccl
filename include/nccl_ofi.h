@@ -61,7 +61,7 @@ extern "C" {
 #define MIN_TAG_BITS_FOR_RING_ID	(32 + 1)
 
 /* Maximum number of grouped receives */
-#define NCCL_OFI_MAX_RECVS	1
+#define NCCL_OFI_MAX_RECVS	8
 
 /* This is twice the size of maximum inflight requests supported by NCCL */
 #define NCCL_OFI_MAX_REQUESTS	256
@@ -176,6 +176,14 @@ typedef struct comm {
     };
 } ofiComm_t, recvComm_t, sendComm_t;
 
+typedef struct nccl_ofi_req_completions {
+	/* NCCL-provided tag */
+	uint32_t nccl_recv_tag;
+
+	/* Size of completed request */
+	size_t size;
+} nccl_ofi_req_completions_t;
+
 typedef struct nccl_ofi_req {
 	/* Associated Comm object */
 	union {
@@ -196,10 +204,10 @@ typedef struct nccl_ofi_req {
 #if (NCCL_VERSION_CODE >= NCCL_VERSION(2, 12, 0)) /* Support NCCL v2.12 */
 	/* Number of receives associated with request */
 	int num_recvs;
+	int completed_recvs;
+	nccl_ofi_req_completions_t completions[NCCL_OFI_MAX_RECVS];
 #endif
 
-	/* Size of completed request */
-	size_t size;
 
 	/* State of request */
 	nccl_ofi_req_state_t state;
