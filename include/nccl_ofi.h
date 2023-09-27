@@ -409,6 +409,8 @@ struct nccl_net_ofi_send_comm {
 	int (*send)(nccl_net_ofi_send_comm_t *send_comm, void *data, int size, int tag,
 			     nccl_net_ofi_mr_handle_t *mhandle, nccl_net_ofi_req_t **req);
 
+	int (*write_inline)(nccl_net_ofi_send_comm_t *send_comm, void *data, int size, void *dest, nccl_net_ofi_req_t **req);
+
 	int (*close)(nccl_net_ofi_send_comm_t *send_comm);
 };
 
