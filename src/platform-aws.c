@@ -26,34 +26,40 @@ struct ec2_platform_data {
 	const char* topology;
 	int default_dup_conns;
 	float latency;
+	bool gdr_required;
 } platform_data_map[] = {
 	{
 		.name = "p4d.24xlarge",
 		.topology = "p4d-24xl-topo.xml",
 		.default_dup_conns = 0,
 		.latency = 75.0,
+		.gdr_required = true,
 	},
 	{
 		.name = "p4de.24xlarge",
 		.topology = "p4de-24xl-topo.xml",
 		.default_dup_conns = 0,
 		.latency = 75.0,
+		.gdr_required = true,
 	},
 	{
 		.name = "p3dn.24xlarge",
 		.topology = NULL,
 		.default_dup_conns = 4,
 		.latency = 150.0,
+		.gdr_required = false,
 	},
 	{
 		.name = "p5.48xlarge",
 		.topology = "p5.48xl-topo.xml",
 		.default_dup_conns = 0,
 		.latency = 75.0,
+		.gdr_required = true,
 	},
 	{
 		.name = "g5.48xlarge",
 		.topology = "g5.48xl-topo.xml",
+		.gdr_required = false,
 	},
 };
 
@@ -457,6 +463,16 @@ int platform_config_endpoint(struct fi_info *info, struct fid_ep* endpoint) {
 		goto exit;
 	}
 
+	if (ofi_nccl_disable_gdr_required_check() == 0) {
+		/* Ensure GDR is enabled on GDR-supported instances */
+		struct ec2_platform_data *platform_data = get_platform_data();
+		if (platform_data && platform_data->gdr_required && support_gdr != GDR_SUPPORTED) {
+			NCCL_OFI_WARN("GDR disabled on GDR-supported instance type %s", platform_data->name);
+			ret = -EINVAL;
+			goto exit;
+		}
+	}
+
 	/* If the selected communication protocol is RDMA write and the user did
 	 * not disable the native RDMA support check, validate that the
 	 * FI_OPT_EFA_EMULATED_WRITE endpoint option can be accessed, and that
@@ -511,6 +527,31 @@ int platform_config_endpoint(struct fi_info *info, struct fid_ep* endpoint) {
 	 * ordering.  If we're not expecting ordering, we don't really
 	 * care if ordering is on or off for the endpoint.
 	 */
+
+	/* TODO: This is a temporary hack to disable setting
+	 * NCCL_PROTO=simple on P5 when using the RDMA protocol.  EFA
+	 * on P5 does not currently report
+	 * WRITE_IN_ORDER_ALIGNED_128_BYTES because it can deliver the
+	 * (correct) payload twice.  This violates the meaning of the
+	 * WRITE_IN_ORDER_ALIGNED_128_BYTES flag in rdma-core, but
+	 * does not violate any assumptions about buffer reuse in
+	 * NCCL.  We have confirmed that the EFA provider in Libfabric
+	 * will not segment messages for fi_write(), so this is safe.
+	 * Note that the SENDRECV protocol does have segmentation
+	 * challenges that require us to obey the
+	 * SENDRECV_IN_ORDER_ALIGNED_128_BYTES flag, so we only skip
+	 * the check when using the RDMA protocol.
+	 */
+	if ((NULL == getenv("NCCL_PROTO")) &&
+	    (0 == strcmp("RDMA", nccl_ofi_selected_protocol)) &&
+	    (0 == strcmp(get_platform_type(), "p5.48xlarge"))) {
+		if (!nccl_proto_configured) {
+			NCCL_OFI_INFO(NCCL_INIT, "Skipping NCCL_PROTO checks on P5 + RDMA");
+			need_ordering = false;
+			nccl_proto_configured = true;
+		}
+	}
+
 	if (need_ordering || !nccl_proto_configured) {
 		bool have_ordering = false;
 
