@@ -1686,7 +1686,7 @@ typedef struct {
 } sendrecv_write_inline_fl_handle_t;
 
 
-static int write_inline(nccl_net_ofi_send_comm_t *send_comm, void *data, int size, void *dest, nccl_net_ofi_req_t **base_req)
+static int write_inline(nccl_net_ofi_send_comm_t *send_comm, void *data, int size, void *dest, void *mhandle, nccl_net_ofi_req_t **base_req)
 {
 	int ret = 0;
 	nccl_net_ofi_sendrecv_send_comm_t *s_comm =
@@ -1694,6 +1694,7 @@ static int write_inline(nccl_net_ofi_send_comm_t *send_comm, void *data, int siz
 	ssize_t rc = 0;
 	nccl_net_ofi_sendrecv_req_t *req = NULL;
 	int dev_id = s_comm->base.base.dev_id;
+
 
 	/* Validate endpoint */
 	nccl_net_ofi_sendrecv_ep_t *ep =
@@ -1748,10 +1749,10 @@ static int write_inline(nccl_net_ofi_send_comm_t *send_comm, void *data, int siz
 	rc = fi_write(s_comm->local_ep,
 		      &item->value,
 		      size,
-		      mr_handle,
+		      fi_mr_desc(mr_handle),
 		      s_comm->remote_ep,
 		      (uint64_t)dest,
-		      fi_mr_key(mr_handle),
+		      fi_mr_key(mhandle),
 		      &req->ctx);
 
 	if (OFI_UNLIKELY(rc == -FI_EAGAIN)) {
@@ -1775,10 +1776,10 @@ static int write_inline(nccl_net_ofi_send_comm_t *send_comm, void *data, int siz
 
 	goto exit;
 
- error:
+error:
 	if (req)
 		free_req_send_comm(s_comm, dev_id, req, false);
- exit:
+exit:
 	return ret;
 }
 
@@ -2294,7 +2295,8 @@ static int get_ep(nccl_net_ofi_device_t *base_dev,
 						inline_write_freelist_regmr_host_fn,
 						inline_write_freelist_deregmr_host_fn,
 						ep, /* regmr_opaque */
-						0, /* reginfo_offset */
+						0,  /* reginfo_offset */
+						0,
 						&ep->inline_buff_fl);
 #endif /* HAVE_NEURON */
 

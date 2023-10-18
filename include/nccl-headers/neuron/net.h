@@ -87,7 +87,7 @@ typedef struct {
 	// May return request == NULL if the call cannot be performed (or would block)
 	ncclResult_t (*isend)(void* sendComm, void* data, int size, void* mhandle, void** request);
 	// Inline write to peer address
-	ncclResult_t (*write_inline)(void *sendComm, void *data, int size, void *dest, void **result);
+	ncclResult_t (*write_inline)(void *sendComm, void *data, int size, void *dest, void *mhandle, void **request);
 	// Asynchronous recv from a peer.
 	// May return request == NULL if the call cannot be performed (or would block)
 	ncclResult_t (*irecv)(void* recvComm, void* data, int size, void* mhandle, void** request);

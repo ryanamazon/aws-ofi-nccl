@@ -521,6 +521,10 @@ ncclResult_t nccl_net_ofi_isend_v4(void* sendComm, void* data, int size,
 	return nccl_net_ofi_retval_translate(ret);
 }
 
+ncclResult_t nccl_net_ofi_write_inline(void* sendComm, void* data, int size, void* dest, void *mhandle, void** request) {
+	int ret = nccl_net_ofi_write_inline(sendComm, data, size, dest, mhandle, request);
+	return nccl_net_ofi_retval_translate(ret);
+}
 
 ncclResult_t nccl_net_ofi_irecv(void* rComm, int n, void** buffers, int* sizes,
 				int *tags, void** mhandles, void** req)
