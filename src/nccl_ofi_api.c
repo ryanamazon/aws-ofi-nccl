@@ -521,9 +521,59 @@ ncclResult_t nccl_net_ofi_isend_v4(void* sendComm, void* data, int size,
 	return nccl_net_ofi_retval_translate(ret);
 }
 
-ncclResult_t nccl_net_ofi_write_inline(void* sendComm, void* data, int size, void* dest, void *mhandle, void** request) {
-	int ret = nccl_net_ofi_write_inline(sendComm, data, size, dest, mhandle, request);
-	return nccl_net_ofi_retval_translate(ret);
+
+int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, int size, void *dest, void *mhandle);
+ncclResult_t nccl_net_ofi_write_inline(void* comm, void* data, int size, void* dest, void *mhandle) {
+	ncclResult_t ret;
+	/* Retrieve and validate comm */
+        nccl_net_ofi_comm_t *base_comm =
+                (nccl_net_ofi_comm_t *)comm;
+	nccl_net_ofi_ep_t *base_ep = NULL;
+
+
+        if (OFI_UNLIKELY(base_comm == NULL)) {
+                NCCL_OFI_WARN("Invalid comm object provided");
+                return ncclInternalError;
+        }
+
+	switch (base_comm->type) {
+		case NCCL_NET_OFI_SEND_COMM:;
+			nccl_net_ofi_send_comm_t *send_comm =
+                        	(nccl_net_ofi_send_comm_t *)base_comm;
+			base_ep = (nccl_net_ofi_ep_t *)send_comm->base.ep;
+			break;
+
+		case NCCL_NET_OFI_RECV_COMM:;
+			nccl_net_ofi_recv_comm_t *recv_comm =
+                        	(nccl_net_ofi_recv_comm_t *)base_comm;
+			base_ep = (nccl_net_ofi_ep_t *)recv_comm->base.ep;
+			break;
+		case NCCL_NET_OFI_BASE_COMM:;
+			base_ep = base_comm->ep;
+			NCCL_OFI_WARN("base_comm");
+			break;
+		case NCCL_NET_OFI_LISTEN_COMM:;
+			nccl_net_ofi_listen_comm_t *listen_comm =
+                        	(nccl_net_ofi_listen_comm_t *)base_comm;
+			base_ep = (nccl_net_ofi_ep_t *)listen_comm->base.ep;
+			break;
+			NCCL_OFI_WARN("listen_comm");
+			break;
+
+		default:
+		NCCL_OFI_WARN("nccl_net_ofi_write_inline error 1");
+	}
+
+	if (base_ep == NULL) {
+		NCCL_OFI_WARN("nccl_net_ofi_write_inline error NUL base_ep");
+		return ncclInternalError;
+	}
+
+
+	NCCL_OFI_WARN("nccl_net_ofi_write_inline base_ep->write_inline=%p comm=%p data=%p size=%d dest=%p mhandle=%p", base_ep->write_inline, comm, data, size, dest, mhandle);
+	write_inline(base_ep, base_comm, data, size, dest, mhandle);
+
+	return ncclSuccess;
 }
 
 ncclResult_t nccl_net_ofi_irecv(void* rComm, int n, void** buffers, int* sizes,

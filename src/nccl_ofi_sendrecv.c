@@ -121,8 +121,6 @@ static const char *req_direction_str(nccl_net_ofi_sendrecv_req_direction_t direc
 		return "SEND";
 	case NCCL_OFI_SENDRECV_RECV:
 		return "RECV";
-	case NCCL_OFI_SENDRECV_INLINE_WRITE:
-		return "INLINE_WRITE";
 	default:
 		return "unknown";
 	}
@@ -279,17 +277,6 @@ static inline int free_req_send_comm(nccl_net_ofi_sendrecv_send_comm_t *s_comm,
 	uint64_t *num_inflight_reqs = &s_comm->num_inflight_reqs;
 	nccl_ofi_freelist_t *nccl_ofi_reqs_fl = s_comm->nccl_ofi_reqs_fl;
 
-#ifdef HAVE_NEURON
-	/*
-	 * Free the inline buffer
-	 */
-	if (req->direction == NCCL_OFI_SENDRECV_INLINE_WRITE) {
-		nccl_net_ofi_sendrecv_ep_t *ep =
-			(nccl_net_ofi_sendrecv_ep_t *)s_comm->base.base.ep;
-		nccl_ofi_freelist_entry_free(ep->inline_buff_fl, req->inline_buffer);
-	}
-#endif /* HAVE_NEURON */
-
 	return free_req(num_inflight_reqs, nccl_ofi_reqs_fl, dev_id,
 				 req, dec_inflight_reqs);
 }
@@ -318,8 +305,7 @@ static inline int free_req_comm(nccl_net_ofi_comm_t *base_comm,
 						  nccl_net_ofi_sendrecv_req_t *req,
 						  bool dec_inflight_reqs)
 {
-	if (req->direction == NCCL_OFI_SENDRECV_SEND ||
-	    req->direction == NCCL_OFI_SENDRECV_INLINE_WRITE) {
+	if (req->direction == NCCL_OFI_SENDRECV_SEND) {
 		nccl_net_ofi_sendrecv_send_comm_t *s_comm =
 			(nccl_net_ofi_sendrecv_send_comm_t *)base_comm;
 		return free_req_send_comm(s_comm, dev_id,
@@ -690,8 +676,13 @@ static int reg_mr_base_comm(nccl_net_ofi_comm_t *base_comm, void *data,
 	int dev_id = device->base.dev_id;
 
 	nccl_ofi_mr_keypool_t *key_pool = &device->key_pool;
-	return reg_mr_base(device->domain, ep->ofi_ep, key_pool,
+	int x = reg_mr_base(device->domain, ep->ofi_ep, key_pool,
 			   dev_id, data, size, type, mhandle);
+
+	if (size == 4) {
+		NCCL_OFI_WARN("reg_mr_base_comm data=%p mhandle=%p", data, *mhandle);
+	}
+	return x;
 }
 
 static int reg_mr_send_comm(nccl_net_ofi_send_comm_t *send_comm, void *data,
@@ -1154,6 +1145,7 @@ static int alloc_and_reg_flush_buff(struct fid_domain *domain, struct fid_ep *ep
 
 	return ret;
 }
+
 
 /*
  * @brief	Allocate and setup receive communicator object for a peer. This
@@ -1685,101 +1677,80 @@ typedef struct {
 	int dev_id;
 } sendrecv_write_inline_fl_handle_t;
 
-
-static int write_inline(nccl_net_ofi_send_comm_t *send_comm, void *data, int size, void *dest, void *mhandle, nccl_net_ofi_req_t **base_req)
+int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, int size, void *dest, void *mhandle)
 {
 	int ret = 0;
-	nccl_net_ofi_sendrecv_send_comm_t *s_comm =
-		(nccl_net_ofi_sendrecv_send_comm_t *)send_comm;
-	ssize_t rc = 0;
-	nccl_net_ofi_sendrecv_req_t *req = NULL;
-	int dev_id = s_comm->base.base.dev_id;
+	nccl_net_ofi_sendrecv_ep_t *sendrecv_ep = (nccl_net_ofi_sendrecv_ep_t *)comm->ep;
+	struct fid_ep *local_ep = NULL;
+	fi_addr_t remote_ep = 0;
+	sendrecv_write_inline_fl_item_t *item = NULL;
 
+	NCCL_OFI_WARN("write inline");
 
-	/* Validate endpoint */
-	nccl_net_ofi_sendrecv_ep_t *ep =
-		(nccl_net_ofi_sendrecv_ep_t *)s_comm->base.base.ep;
 	if (OFI_UNLIKELY(ep == NULL)) {
 		ret = -EINVAL;
 		NCCL_OFI_WARN("Invalid endpoint provided");
-		goto error;
+		goto exit;
 	}
+	NCCL_OFI_WARN("write inline");
 
 	/* Retrieve and validate device */
 	nccl_net_ofi_sendrecv_device_t *device =
-		(nccl_net_ofi_sendrecv_device_t*)ep->base.device;
+		(nccl_net_ofi_sendrecv_device_t*)ep->device;
 	if (OFI_UNLIKELY(device == NULL)) {
 		ret = -EINVAL;
 		NCCL_OFI_WARN("Invalid device provided");
 		goto exit;
 	}
+	NCCL_OFI_WARN("write inline");
 
-	/* Support only max_reqs inflight requests. */
-	if (OFI_UNLIKELY(s_comm->num_inflight_reqs == max_reqs)) {
-		ret = -EINVAL;
-		NCCL_OFI_WARN("Can not support more than %d inflight requests",
-			      max_reqs);
-		goto error;
+	if (OFI_UNLIKELY(size <= 0 || size >= NCCL_OFI_MAX_INLINE_WRITE_BYTES)) {
+                ret = -EINVAL;
+		NCCL_OFI_WARN("Can not support %d inline bytes.  Requested: %d",
+			NCCL_OFI_MAX_INLINE_WRITE_BYTES, size);
+		goto exit;
 	}
+	NCCL_OFI_WARN("write inline");
 
-	/* Allocate NCCL OFI request */
-	req = allocate_req(s_comm->nccl_ofi_reqs_fl);
-	if (OFI_UNLIKELY(req == NULL)) {
-		ret = -ENOMEM;
-		NCCL_OFI_WARN("Unable to get NCCL OFI request for device %d",
-			      dev_id);
-		goto error;
+	if (comm->type == NCCL_NET_OFI_SEND_COMM) {
+		nccl_net_ofi_sendrecv_send_comm_t *s_comm = (nccl_net_ofi_sendrecv_send_comm_t *)comm;
+		local_ep = s_comm->local_ep;
+		remote_ep = s_comm->remote_ep;
+	        NCCL_OFI_WARN("write inline send_comm");
+	} else if (comm->type == NCCL_NET_OFI_RECV_COMM) {
+		nccl_net_ofi_sendrecv_recv_comm_t *r_comm = (nccl_net_ofi_sendrecv_recv_comm_t *)comm;
+		local_ep = r_comm->local_ep;
+		remote_ep = r_comm->remote_ep;
+
+		nccl_net_ofi_sendrecv_ep_t *ep = 
+                (nccl_net_ofi_sendrecv_ep_t *)comm->ep;
+
+	        NCCL_OFI_WARN("write inline recv_comm local_ep=%p remote_ep=%p ep=%p", local_ep, remote_ep, ep);
+		remote_ep = ep;
+	} else {
+	        NCCL_OFI_WARN("write inline unknown_comm");
 	}
+	NCCL_OFI_WARN("write inline");
 
-	req->comm = &s_comm->base.base;
-	req->dev_id = dev_id;
-	req->direction = NCCL_OFI_SENDRECV_INLINE_WRITE;
+	item = nccl_ofi_freelist_entry_alloc(sendrecv_ep->inline_buff_fl);
+	NCCL_OFI_WARN("write inline");
 
-	/*
-	 * Try sending data to remote EP; Return NULL request
-	 * if not able to send.
-	 */
-
-	sendrecv_write_inline_fl_item_t *item =
-		nccl_ofi_freelist_entry_alloc(ep->inline_buff_fl);
-	void *mr_handle = item->reginfo.mr_handle;
 	memcpy(&item->value, data, size);
-	req->inline_buffer = &item->value;
+	NCCL_OFI_WARN("write inline local_ep=%p value=%u data=%d size=%d remote_ep=%p dest=%p mhandle=%p key=%p",
+			local_ep, item->value, data, size, remote_ep, dest, mhandle, fi_mr_key(mhandle));
 
-	rc = fi_write(s_comm->local_ep,
-		      &item->value,
-		      size,
-		      fi_mr_desc(mr_handle),
-		      s_comm->remote_ep,
-		      (uint64_t)dest,
-		      fi_mr_key(mhandle),
-		      &req->ctx);
-
-	if (OFI_UNLIKELY(rc == -FI_EAGAIN)) {
-		/* Make progress for next try */
-		ret = ofi_process_cq(ep->cq, device->max_tag);
-		/* Return NULL request */
-		*base_req = NULL;
-		goto error;
-	}
-	else if (OFI_UNLIKELY(rc != 0)) {
-		NCCL_OFI_WARN("Could not send request for device %d. RC: %zd",
-			      dev_id, rc);
-		ret = rc;
-		goto error;
-	}
-
-	(s_comm->num_inflight_reqs)++;
-
-	/* Return request to NCCL */
-	*base_req = &req->base;
-
-	goto exit;
-
-error:
-	if (req)
-		free_req_send_comm(s_comm, dev_id, req, false);
+        fi_inject_write(local_ep,
+                        &item->value,
+                        size,
+			remote_ep,
+                        (uint64_t)dest,
+                        fi_mr_key(mhandle));
+	NCCL_OFI_WARN("write inline");
+                   
 exit:
+	if (OFI_LIKELY(item != NULL)) {
+		nccl_ofi_freelist_entry_free(sendrecv_ep->inline_buff_fl, item);
+	}
 	return ret;
 }
 
@@ -1936,7 +1907,6 @@ static inline int create_send_comm(nccl_net_ofi_conn_handle_t *handle,
 	ret_s_comm->base.regMrDmaBuf = nccl_net_ofi_reg_mr_dma_buf_send_comm;
 	ret_s_comm->base.deregMr = dereg_mr_send_comm;
 	ret_s_comm->base.send = send;
-	ret_s_comm->base.write_inline = write_inline;
 	ret_s_comm->base.close = send_close;
 	ret_s_comm->tag = tag;
 	ret_s_comm->local_ep = ep->ofi_ep;
@@ -2269,6 +2239,7 @@ static int get_ep(nccl_net_ofi_device_t *base_dev,
 		ep->base.device = &device->base;
 		ep->base.listen = listen;
 		ep->base.connect = connect;
+		ep->base.write_inline = write_inline;
 		ep->base.release_ep = release_ep;
 
 		/* Initialize endpoint tag */
