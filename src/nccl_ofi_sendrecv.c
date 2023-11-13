@@ -513,7 +513,7 @@ static int register_mr_buffers(struct fid_domain *domain, struct fid_ep *ep,
 #endif
 #if HAVE_NEURON
 	case NCCL_PTR_NEURON:
-		mr_attr.access |= FI_REMOTE_READ;
+		mr_attr.access |= (FI_REMOTE_READ | FI_REMOTE_WRITE);
 		mr_attr.iface = FI_HMEM_NEURON;
 		/*
 		 * Store a sentinel; libfabric requires this to be initialized Libfabric
@@ -680,7 +680,7 @@ static int reg_mr_base_comm(nccl_net_ofi_comm_t *base_comm, void *data,
 			   dev_id, data, size, type, mhandle);
 
 	if (size == 4) {
-		NCCL_OFI_WARN("reg_mr_base_comm data=%p mhandle=%p", data, *mhandle);
+		NCCL_OFI_WARN("reg_mr_base_comm data=%p mhandle=%p ep=%p", data, *mhandle, ep->ofi_ep);
 	}
 	return x;
 }
@@ -1684,6 +1684,7 @@ int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, i
 	struct fid_ep *local_ep = NULL;
 	fi_addr_t remote_ep = 0;
 	sendrecv_write_inline_fl_item_t *item = NULL;
+	fi_addr_t local_ep_addr = 0;
 
 	NCCL_OFI_WARN("write inline");
 
@@ -1715,13 +1716,14 @@ int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, i
 	if (comm->type == NCCL_NET_OFI_SEND_COMM) {
 		nccl_net_ofi_sendrecv_send_comm_t *s_comm = (nccl_net_ofi_sendrecv_send_comm_t *)comm;
 		local_ep = s_comm->local_ep;
+		local_ep_addr = s_comm->local_ep_addr;
 		remote_ep = s_comm->remote_ep;
 	        NCCL_OFI_WARN("write inline send_comm");
 	} else if (comm->type == NCCL_NET_OFI_RECV_COMM) {
 		nccl_net_ofi_sendrecv_recv_comm_t *r_comm = (nccl_net_ofi_sendrecv_recv_comm_t *)comm;
 		local_ep = r_comm->local_ep;
 		remote_ep = r_comm->remote_ep;
-
+		local_ep_addr = r_comm->local_ep_addr;
 		nccl_net_ofi_sendrecv_ep_t *ep = 
                 (nccl_net_ofi_sendrecv_ep_t *)comm->ep;
 
@@ -1735,17 +1737,26 @@ int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, i
 	item = nccl_ofi_freelist_entry_alloc(sendrecv_ep->inline_buff_fl);
 	NCCL_OFI_WARN("write inline");
 
-	memcpy(&item->value, data, size);
-	NCCL_OFI_WARN("write inline local_ep=%p value=%u data=%d size=%d remote_ep=%p dest=%p mhandle=%p key=%p",
-			local_ep, item->value, data, size, remote_ep, dest, mhandle, fi_mr_key(mhandle));
+	nccl_net_ofi_sendrecv_ep_t *m_ep =
+                (nccl_net_ofi_sendrecv_ep_t *)comm->ep;
 
-        fi_inject_write(local_ep,
+	memcpy(&item->value, data, size);
+	NCCL_OFI_WARN("write inline local_ep=%p value=%u data=%d size=%d remote_ep=%p dest=%p mhandle=%p key=%p m_ep=%p",
+			local_ep, item->value, *(uint32_t *)data, size, remote_ep, dest, mhandle, fi_mr_key(mhandle), m_ep);
+;
+	int r;
+        for(int i = 0; i < 1000; i++) {
+            r = fi_inject_write(local_ep,
                         &item->value,
                         size,
-			remote_ep,
+			local_ep_addr,
                         (uint64_t)dest,
                         fi_mr_key(mhandle));
-	NCCL_OFI_WARN("write inline");
+
+	    NCCL_OFI_WARN("write inline %d r=%d", i, r);
+            if (r != -EAGAIN)
+		    break;
+	}
                    
 exit:
 	if (OFI_LIKELY(item != NULL)) {
@@ -1809,7 +1820,7 @@ static int inline_write_freelist_regmr_host_fn(void *ep_void_ptr, void *data, si
 
 	int ret = register_mr_buffers(device->domain, ep->ofi_ep,
 				      key_pool, dev_id, data, size,
-				      NCCL_PTR_NEURON, (struct fid_mr **)&mr_handle);
+				      NCCL_PTR_HOST, (struct fid_mr **)&mr_handle);
 	if (ret != 0) {
                 NCCL_OFI_WARN("Failed call to reg_mr_ep: %d", ret);
                 return -EIO;
