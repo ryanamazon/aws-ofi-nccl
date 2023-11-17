@@ -522,8 +522,8 @@ ncclResult_t nccl_net_ofi_isend_v4(void* sendComm, void* data, int size,
 }
 
 
-int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, int size, void *dest, void *mhandle);
-ncclResult_t nccl_net_ofi_write_inline(void* comm, void* data, int size, void* dest, void *mhandle) {
+int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, int size, void *dest, void *mhandle, nccl_net_ofi_req_t **base_req);
+ncclResult_t nccl_net_ofi_write_inline(void* comm, void* data, int size, void* dest, void *mhandle, void *src_mhandle, void **req) {
 	ncclResult_t ret;
 	/* Retrieve and validate comm */
         nccl_net_ofi_comm_t *base_comm =
@@ -568,10 +568,11 @@ ncclResult_t nccl_net_ofi_write_inline(void* comm, void* data, int size, void* d
 		NCCL_OFI_WARN("nccl_net_ofi_write_inline error NUL base_ep");
 		return ncclInternalError;
 	}
+	nccl_net_ofi_req_t **base_req = (nccl_net_ofi_req_t **)req;
 
 
 	NCCL_OFI_WARN("nccl_net_ofi_write_inline base_ep->write_inline=%p comm=%p data=%p size=%d dest=%p mhandle=%p", base_ep->write_inline, comm, data, size, dest, mhandle);
-	write_inline(base_ep, base_comm, data, size, dest, mhandle);
+	write_inline(base_ep, base_comm, data, size, dest, mhandle, base_req);
 
 	return ncclSuccess;
 }

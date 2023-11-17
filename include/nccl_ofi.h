@@ -337,7 +337,7 @@ struct nccl_net_ofi_ep {
 	 * Perform write to peer address.  There is no request because return is immediate.
 	 *
 	 */
-	int (*write_inline)(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, int size, void *dest, void *mhandle);
+	int (*write_inline)(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, int size, void *dest, void *mhandle, void *dest_mhandle, void **request);
 
 	/*
 	 * @brief	Release nccl_ofi_ep.
