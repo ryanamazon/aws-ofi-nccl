@@ -947,6 +947,7 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers, voi
 	int dev_id = recv_comm->base.dev_id;
 	struct fid_mr **mr_handles = (struct fid_mr **)mhandles;
 
+	/*
 
 	NCCL_OFI_WARN("flush recv_comm=%p n=%d buffers=%p sizes=%d mhandles=%p base_req=%p",
 			recv_comm,
@@ -955,6 +956,7 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers, voi
 			sizes[0],
 			mhandles[0],
 			*base_req);
+			*/
 
 	if (ofi_nccl_gdr_flush_disable() || support_gdr == GDR_UNSUPPORTED)
 		goto exit;
@@ -975,11 +977,11 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers, voi
 	}
 #endif
 
-	NCCL_OFI_WARN("flush");
+	//NCCL_OFI_WARN("flush");
 
 	/* Plugin only supports one receive per request */
 	assert(n <= NCCL_OFI_MAX_RECVS);
-	NCCL_OFI_WARN("flush");
+	//NCCL_OFI_WARN("flush");
 
 	/*
 	 * Find the non-zero request for which we will issue flush.
@@ -992,7 +994,7 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers, voi
 			break;
 		}
 	}
-	NCCL_OFI_WARN("flush");
+	//NCCL_OFI_WARN("flush");
 
 	if (flush_n == -1) {
 		/*
@@ -1005,10 +1007,10 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers, voi
 
 	if (mr_handles && mr_handles[flush_n])
 		mr_handle = mr_handles[flush_n];
-	NCCL_OFI_WARN("flush");
+	//NCCL_OFI_WARN("flush");
 
 	data = buffers[flush_n];
-	NCCL_OFI_WARN("flush");
+	//NCCL_OFI_WARN("flush");
 
 	/* Support only max_requests inflight requests. */
 	if (OFI_UNLIKELY(r_comm->num_inflight_reqs == max_reqs)) {
@@ -1017,7 +1019,7 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers, voi
 			      max_reqs);
 		goto exit;
 	}
-	NCCL_OFI_WARN("flush");
+	//NCCL_OFI_WARN("flush");
 
 	/* Allocate NCCL OFI request */
 	req = allocate_req(r_comm->nccl_ofi_reqs_fl);
@@ -1027,19 +1029,19 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers, voi
 			      dev_id);
 		goto exit;
 	}
-	NCCL_OFI_WARN("flush");
+	//NCCL_OFI_WARN("flush");
 
 	req->comm = &r_comm->base.base;
 	req->dev_id = dev_id;
 	req->direction = NCCL_OFI_SENDRECV_RECV;
-	NCCL_OFI_WARN("flush");
+	//NCCL_OFI_WARN("flush");
 
 	if (r_comm->flush_buff.mr_handle != NULL) {
 		/* Not checking for NULL flush_mr_desc as fi_mr_desc()
 		 * returns valid descriptors by valid handles */
 		flush_mr_desc = fi_mr_desc(r_comm->flush_buff.mr_handle);
 	}
-	NCCL_OFI_WARN("flush");
+	//NCCL_OFI_WARN("flush");
 
 	if (mr_handle != NULL) {
 		/* Extract remote key */
@@ -1050,7 +1052,7 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers, voi
 			goto error;
 		}
 	}
-	NCCL_OFI_WARN("flush");
+	//NCCL_OFI_WARN("flush");
 
 	NCCL_OFI_TRACE_FLUSH(req, base_req);
 
@@ -1065,8 +1067,8 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers, voi
 				(uint64_t)dests[0],	       // dest_addr
 				fi_mr_key((struct fid_mr *)mhandles[0]), // key
 				&req->ctx); // ctx
-		NCCL_OFI_WARN("flush fi_write src_buf=%p size=%d src_mhandle=%p dest_buf=%p dest_mhandle=%p req=%p base_req=%p rc=%d",
-				buffers[0], sizes[0], src_mhandle, dests[0], mhandles[0], req, &req->base, rc);
+	//	NCCL_OFI_WARN("flush fi_write src_buf=%p size=%d src_mhandle=%p dest_buf=%p dest_mhandle=%p req=%p base_req=%p rc=%d",
+	//			buffers[0], sizes[0], src_mhandle, dests[0], mhandles[0], req, &req->base, rc);
 
 
 
@@ -1113,7 +1115,7 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers, voi
 			goto error;
 		}
 	} while (true);
-	NCCL_OFI_WARN("flush");
+	//NCCL_OFI_WARN("flush");
 
 	(r_comm->num_inflight_reqs)++;
 
