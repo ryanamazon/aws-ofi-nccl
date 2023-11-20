@@ -384,6 +384,7 @@ static int test(nccl_net_ofi_req_t *base_req, int *done, int *size)
 	}
 
  exit:
+	NCCL_OFI_WARN("base_req=%p done=%d rv=%d", base_req, *done, ret);
 	return ret;
 }
 
@@ -930,8 +931,8 @@ static int recv_close(nccl_net_ofi_recv_comm_t *recv_comm)
 	return ret;
 }
 
-static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers,
-				   int *sizes, nccl_net_ofi_mr_handle_t **mhandles,
+static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers, void **dests,
+				   int *sizes, nccl_net_ofi_mr_handle_t **mhandles, nccl_net_ofi_mr_handle_t *src_mhandle,
 				   nccl_net_ofi_req_t **base_req)
 {
 	int ret = 0;
@@ -945,6 +946,15 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers,
 	void *flush_mr_desc = NULL;
 	int dev_id = recv_comm->base.dev_id;
 	struct fid_mr **mr_handles = (struct fid_mr **)mhandles;
+
+
+	NCCL_OFI_WARN("flush recv_comm=%p n=%d buffers=%p sizes=%d mhandles=%p base_req=%p",
+			recv_comm,
+			n,
+			buffers[0],
+			sizes[0],
+			mhandles[0],
+			*base_req);
 
 	if (ofi_nccl_gdr_flush_disable() || support_gdr == GDR_UNSUPPORTED)
 		goto exit;
@@ -965,8 +975,11 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers,
 	}
 #endif
 
+	NCCL_OFI_WARN("flush");
+
 	/* Plugin only supports one receive per request */
 	assert(n <= NCCL_OFI_MAX_RECVS);
+	NCCL_OFI_WARN("flush");
 
 	/*
 	 * Find the non-zero request for which we will issue flush.
@@ -979,6 +992,7 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers,
 			break;
 		}
 	}
+	NCCL_OFI_WARN("flush");
 
 	if (flush_n == -1) {
 		/*
@@ -991,8 +1005,10 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers,
 
 	if (mr_handles && mr_handles[flush_n])
 		mr_handle = mr_handles[flush_n];
+	NCCL_OFI_WARN("flush");
 
 	data = buffers[flush_n];
+	NCCL_OFI_WARN("flush");
 
 	/* Support only max_requests inflight requests. */
 	if (OFI_UNLIKELY(r_comm->num_inflight_reqs == max_reqs)) {
@@ -1001,6 +1017,7 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers,
 			      max_reqs);
 		goto exit;
 	}
+	NCCL_OFI_WARN("flush");
 
 	/* Allocate NCCL OFI request */
 	req = allocate_req(r_comm->nccl_ofi_reqs_fl);
@@ -1010,16 +1027,19 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers,
 			      dev_id);
 		goto exit;
 	}
+	NCCL_OFI_WARN("flush");
 
 	req->comm = &r_comm->base.base;
 	req->dev_id = dev_id;
 	req->direction = NCCL_OFI_SENDRECV_RECV;
+	NCCL_OFI_WARN("flush");
 
 	if (r_comm->flush_buff.mr_handle != NULL) {
 		/* Not checking for NULL flush_mr_desc as fi_mr_desc()
 		 * returns valid descriptors by valid handles */
 		flush_mr_desc = fi_mr_desc(r_comm->flush_buff.mr_handle);
 	}
+	NCCL_OFI_WARN("flush");
 
 	if (mr_handle != NULL) {
 		/* Extract remote key */
@@ -1030,17 +1050,34 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers,
 			goto error;
 		}
 	}
+	NCCL_OFI_WARN("flush");
 
 	NCCL_OFI_TRACE_FLUSH(req, base_req);
 
 	/* Issue RDMA read */
 	do {
+
+		rc = fi_write(r_comm->local_ep, // ep
+				buffers[0], // src buf
+				sizes[0],        // len 
+			        fi_mr_desc((struct fid_mr *)src_mhandle), // desc
+				r_comm->local_ep_addr, // local_ep_addr
+				(uint64_t)dests[0],	       // dest_addr
+				fi_mr_key((struct fid_mr *)mhandles[0]), // key
+				&req->ctx); // ctx
+		NCCL_OFI_WARN("flush fi_write src_buf=%p size=%d src_mhandle=%p dest_buf=%p dest_mhandle=%p req=%p base_req=%p rc=%d",
+				buffers[0], sizes[0], src_mhandle, dests[0], mhandles[0], req, &req->base, rc);
+
+
+
+		/*
 		rc = fi_read(r_comm->local_ep, r_comm->flush_buff.host_buffer,
 			     r_comm->flush_buff.size,
 			     flush_mr_desc,
 			     r_comm->local_ep_addr,
 			     (uint64_t)(virt_addr_mr ? data : 0),
 			     cuda_key, &req->ctx);
+		*/
 		if (rc == 0) {
 			break;
 		} else if (rc == -FI_EAGAIN) {
@@ -1076,6 +1113,7 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers,
 			goto error;
 		}
 	} while (true);
+	NCCL_OFI_WARN("flush");
 
 	(r_comm->num_inflight_reqs)++;
 
@@ -1762,8 +1800,6 @@ int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, i
                 (nccl_net_ofi_sendrecv_ep_t *)comm->ep;
 
 	memcpy(&item->value, data, size);
-	NCCL_OFI_WARN("write inline local_ep=%p value=%u data=%d size=%d remote_ep=%p dest=%p mhandle=%p key=%p m_ep=%p",
-			local_ep, item->value, *(uint32_t *)data, size, remote_ep, dest, mhandle, fi_mr_key(mhandle), m_ep);
 ;
 	int r;
 #if 0
@@ -1780,14 +1816,16 @@ int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, i
 		    break;
 	}
 #endif // 0
-       r = fi_write(local_ep,
-		       data,
-		       size,
-		       fi_mr_desc(src_mhandle),
-		       local_ep_addr,
-		       (uint64_t)dest,
-		       fi_mr_key(mhandle),
-		       &req->ctx);
+       r = fi_write(local_ep, // same
+		       data,  // src
+		       size, // dest
+		       fi_mr_desc(src_mhandle), // src mhandle
+		       local_ep_addr,  //same
+		       (uint64_t)dest, //dest
+		       fi_mr_key(mhandle), //dest mhandle
+		       &req->ctx); // request
+	NCCL_OFI_WARN("write inline local_ep=%p value=%u data=%d size=%d remote_ep=%p dest=%p mhandle=%p key=%p m_ep=%p r=%d",
+			local_ep, item->value, *(uint32_t *)data, size, remote_ep, dest, mhandle, fi_mr_key(mhandle), m_ep, r);
 
                    
 exit:

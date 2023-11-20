@@ -37,9 +37,10 @@ ncclResult_t nccl_net_ofi_isend_v4(void* sendComm, void* data, int size, void* m
 ncclResult_t nccl_net_ofi_irecv(void* recvComm, int n, void** buffers, int* sizes, int *tags, void** mhandles, void** request);
 ncclResult_t nccl_net_ofi_irecv_v4(void* recvComm, void* data, int size, void* mhandle, void** request);
 ncclResult_t nccl_net_ofi_test(void *request, int *done, int *size);
-ncclResult_t nccl_net_ofi_iflush(void* recvComm, int n, void** buffers, int* sizes, void** mhandles, void** request);
+ncclResult_t nccl_net_ofi_iflush(void* recvComm, int n, void** buffers, void **dests, int* sizes, void** mhandles, void *src_mhandles, void** request);
 ncclResult_t nccl_net_ofi_flush_v3(void* recvComm, void* data, int size, void* mhandle);
-ncclResult_t nccl_net_ofi_iflush_v4(void* recvComm, void* data, int size, void* mhandle, void** request);
+ncclResult_t nccl_net_ofi_iflush_v4(void* recvComm, void* data, int size, void *dest,
+                           void* mhandle, void *src_mhandle, void** request);
 ncclResult_t nccl_net_ofi_closeSend(void *sendComm);
 ncclResult_t nccl_net_ofi_closeRecv(void *recvComm);
 ncclResult_t nccl_net_ofi_closeListen(void *listenComm);

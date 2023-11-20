@@ -596,8 +596,7 @@ ncclResult_t nccl_net_ofi_irecv(void* rComm, int n, void** buffers, int* sizes,
 }
 
 
-ncclResult_t nccl_net_ofi_irecv_v4(void* recvComm, void* data, int size,
-			  void* mhandle, void** request)
+ncclResult_t nccl_net_ofi_irecv_v4(void* recvComm, void* data, int size, void* mhandle, void** request)
 {
 	int tag = 0;
 
@@ -608,19 +607,22 @@ ncclResult_t nccl_net_ofi_irecv_v4(void* recvComm, void* data, int size,
 
 ncclResult_t nccl_net_ofi_test(void* req, int* done, int* size)
 {
+	NCCL_OFI_WARN("nccl_net_ofi_test req=%p done=%d", req, *done);
 	/* Validate request */
 	if (OFI_UNLIKELY(req == NULL)) {
+		NCCL_OFI_WARN("req=NULL");
 		return ncclInternalError;
 	}
 
 	nccl_net_ofi_req_t *base_req = (nccl_net_ofi_req_t *)req;
 	int ret = base_req->test(base_req, done, size);
+	NCCL_OFI_WARN("nccl_net_ofi_test req=%p done=%d ret=%d", req, *done, ret);
 	return nccl_net_ofi_retval_translate(ret);
 }
 
-
-ncclResult_t nccl_net_ofi_iflush(void* rComm, int n, void** buffers, int* sizes,
-				 void** mhandles, void** req)
+//ncclResult_t nccl_net_ofi_iflush(void* rComm, int n, void** buffers, int* sizes,
+//				 void** mhandles, void** req)
+ncclResult_t nccl_net_ofi_iflush(void* rComm, int n, void** buffers, void **dests, int* sizes, void** mhandles, void *src_mhandles, void** req) 
 {
 
 	/* Retrieve and validate recv_comm */
@@ -634,7 +636,9 @@ ncclResult_t nccl_net_ofi_iflush(void* rComm, int n, void** buffers, int* sizes,
 	nccl_net_ofi_mr_handle_t **handles = (nccl_net_ofi_mr_handle_t **)mhandles;
 	nccl_net_ofi_req_t **base_req = (nccl_net_ofi_req_t **)req;
 
-	int ret = recv_comm->flush(recv_comm, n, buffers, sizes, handles, base_req);
+	nccl_net_ofi_mr_handle_t *shandle = (nccl_net_ofi_mr_handle_t *)src_mhandles;
+
+	int ret = recv_comm->flush(recv_comm, n, buffers, dests, sizes, handles, shandle, base_req);
 	return nccl_net_ofi_retval_translate(ret);
 }
 
@@ -645,7 +649,7 @@ ncclResult_t nccl_net_ofi_flush_v3(void* recvComm, void* data, int size, void* m
 	int ret = 0;
 	int done = 0;
 
-	ret = nccl_net_ofi_iflush_v4(recvComm, data, size, mhandle, &req);
+	ret = nccl_net_ofi_iflush_v4(recvComm, data, size, NULL, mhandle, NULL, &req);
 	if ((ret != 0) || (req == NULL)) {
 		goto error;
 	}
@@ -661,11 +665,12 @@ error:
 	return nccl_net_ofi_retval_translate(ret);
 }
 
-
-ncclResult_t nccl_net_ofi_iflush_v4(void* recvComm, void* data, int size,
-			   void* mhandle, void** request)
+ncclResult_t nccl_net_ofi_iflush_v4(void* recvComm, void* data, int size, void *dest,
+			   void* mhandle, void *src_mhandle, void** request)
 {
-	int ret = nccl_net_ofi_iflush(recvComm, 1, &data, &size, &mhandle, request);
+	NCCL_OFI_WARN("nccl_net_ofi_iflush_v4 recvComm=%p data=%p size=%d dest=%p mhandle=%p src_mhandle=p request=%p",
+			recvComm, data, size, dest, mhandle, src_mhandle, *request);
+	int ret = nccl_net_ofi_iflush(recvComm, 1, &data, &dest, &size, &mhandle, src_mhandle, request);
 	return nccl_net_ofi_retval_translate(ret);
 }
 
