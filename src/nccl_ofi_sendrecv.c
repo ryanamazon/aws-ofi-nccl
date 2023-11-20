@@ -1686,14 +1686,14 @@ int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, i
 	sendrecv_write_inline_fl_item_t *item = NULL;
 	fi_addr_t local_ep_addr = 0;
 
-	NCCL_OFI_WARN("write inline");
+	//NCCL_OFI_WARN("write inline");
 
 	if (OFI_UNLIKELY(ep == NULL)) {
 		ret = -EINVAL;
 		NCCL_OFI_WARN("Invalid endpoint provided");
 		goto exit;
 	}
-	NCCL_OFI_WARN("write inline");
+	//NCCL_OFI_WARN("write inline");
 
 	/* Retrieve and validate device */
 	nccl_net_ofi_sendrecv_device_t *device =
@@ -1711,7 +1711,7 @@ int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, i
 			NCCL_OFI_MAX_INLINE_WRITE_BYTES, size);
 		goto exit;
 	}
-	NCCL_OFI_WARN("write inline");
+	//NCCL_OFI_WARN("write inline");
 
 	if (comm->type == NCCL_NET_OFI_SEND_COMM) {
 		nccl_net_ofi_sendrecv_send_comm_t *s_comm = (nccl_net_ofi_sendrecv_send_comm_t *)comm;
@@ -1727,27 +1727,27 @@ int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, i
 		nccl_net_ofi_sendrecv_ep_t *ep = 
                 (nccl_net_ofi_sendrecv_ep_t *)comm->ep;
 
-	        NCCL_OFI_WARN("write inline recv_comm local_ep=%p remote_ep=%p ep=%p", local_ep, remote_ep, ep);
+	        //NCCL_OFI_WARN("write inline recv_comm local_ep=%p remote_ep=%p ep=%p", local_ep, remote_ep, ep);
 		remote_ep = ep;
 	} else {
 	        NCCL_OFI_WARN("write inline unknown_comm");
 	}
-	NCCL_OFI_WARN("write inline");
+	//NCCL_OFI_WARN("write inline");
 
-	item = nccl_ofi_freelist_entry_alloc(sendrecv_ep->inline_buff_fl);
-	NCCL_OFI_WARN("write inline");
+	//item = nccl_ofi_freelist_entry_alloc(sendrecv_ep->inline_buff_fl);
+	//NCCL_OFI_WARN("write inline");
 
 	nccl_net_ofi_sendrecv_ep_t *m_ep =
                 (nccl_net_ofi_sendrecv_ep_t *)comm->ep;
 
-	memcpy(&item->value, data, size);
-	NCCL_OFI_WARN("write inline local_ep=%p value=%u data=%d size=%d remote_ep=%p dest=%p mhandle=%p key=%p m_ep=%p",
-			local_ep, item->value, *(uint32_t *)data, size, remote_ep, dest, mhandle, fi_mr_key(mhandle), m_ep);
+	//memcpy(&item->value, data, size);
+	//NCCL_OFI_WARN("write inline local_ep=%p value=%u data=%d size=%d remote_ep=%p dest=%p mhandle=%p key=%p m_ep=%p",
+	//		local_ep, item->value, *(uint32_t *)data, size, remote_ep, dest, mhandle, fi_mr_key(mhandle), m_ep);
 ;
 	int r;
         for(int i = 0; i < 1000; i++) {
             r = fi_inject_write(local_ep,
-                        &item->value,
+                        /*&item->value*/data,
                         size,
 			local_ep_addr,
                         (uint64_t)dest,
@@ -1760,7 +1760,7 @@ int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, i
                    
 exit:
 	if (OFI_LIKELY(item != NULL)) {
-		nccl_ofi_freelist_entry_free(sendrecv_ep->inline_buff_fl, item);
+	//	nccl_ofi_freelist_entry_free(sendrecv_ep->inline_buff_fl, item);
 	}
 	return ret;
 }
