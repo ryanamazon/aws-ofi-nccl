@@ -1703,7 +1703,7 @@ int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, i
 		NCCL_OFI_WARN("Invalid device provided");
 		goto exit;
 	}
-	NCCL_OFI_WARN("write inline");
+	//NCCL_OFI_WARN("write inline");
 
 	if (OFI_UNLIKELY(size <= 0 || size >= NCCL_OFI_MAX_INLINE_WRITE_BYTES)) {
                 ret = -EINVAL;
@@ -1744,7 +1744,8 @@ int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, i
 	//NCCL_OFI_WARN("write inline local_ep=%p value=%u data=%d size=%d remote_ep=%p dest=%p mhandle=%p key=%p m_ep=%p",
 	//		local_ep, item->value, *(uint32_t *)data, size, remote_ep, dest, mhandle, fi_mr_key(mhandle), m_ep);
 ;
-	int r;
+	int r = 0;
+//#if 0
         for(int i = 0; i < 1000; i++) {
             r = fi_inject_write(local_ep,
                         /*&item->value*/data,
@@ -1753,10 +1754,12 @@ int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, i
                         (uint64_t)dest,
                         fi_mr_key(mhandle));
 
-	    NCCL_OFI_WARN("write inline %d r=%d", i, r);
+	    //NCCL_OFI_WARN("write inline %d r=%d", i, r);
             if (r != -EAGAIN)
 		    break;
 	}
+//#endif // 0
+//       memcpy(dest,data,4);
                    
 exit:
 	if (OFI_LIKELY(item != NULL)) {
