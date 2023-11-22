@@ -384,7 +384,7 @@ static int test(nccl_net_ofi_req_t *base_req, int *done, int *size)
 	}
 
  exit:
-	NCCL_OFI_WARN("base_req=%p done=%d rv=%d", base_req, *done, ret);
+	//NCCL_OFI_WARN("base_req=%p done=%d rv=%d", base_req, *done, ret);
 	return ret;
 }
 
@@ -1818,6 +1818,8 @@ int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, i
 		    break;
 	}
 #endif // 0
+
+#if 0
        r = fi_write(local_ep, // same
 		       data,  // src
 		       size, // dest
@@ -1826,6 +1828,17 @@ int write_inline(nccl_net_ofi_ep_t *ep, nccl_net_ofi_comm_t *comm, void *data, i
 		       (uint64_t)dest, //dest
 		       fi_mr_key(mhandle), //dest mhandle
 		       &req->ctx); // request
+#else
+       r = fi_read(local_ep, // same
+		       dest,  // src
+		       size, // dest
+		       fi_mr_desc(mhandle), // src mhandle
+		       local_ep_addr,  //same
+		       (uint64_t)data, //dest
+		       fi_mr_key(src_mhandle), //dest mhandle
+		       &req->ctx); // request
+#endif
+
 	NCCL_OFI_WARN("write inline local_ep=%p value=%u data=%d size=%d remote_ep=%p dest=%p mhandle=%p key=%p m_ep=%p r=%d",
 			local_ep, item->value, *(uint32_t *)data, size, remote_ep, dest, mhandle, fi_mr_key(mhandle), m_ep, r);
 

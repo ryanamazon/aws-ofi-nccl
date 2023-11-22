@@ -607,7 +607,7 @@ ncclResult_t nccl_net_ofi_irecv_v4(void* recvComm, void* data, int size, void* m
 
 ncclResult_t nccl_net_ofi_test(void* req, int* done, int* size)
 {
-	NCCL_OFI_WARN("nccl_net_ofi_test req=%p done=%d", req, *done);
+	//NCCL_OFI_WARN("nccl_net_ofi_test req=%p done=%d", req, *done);
 	/* Validate request */
 	if (OFI_UNLIKELY(req == NULL)) {
 		NCCL_OFI_WARN("req=NULL");
@@ -616,7 +616,7 @@ ncclResult_t nccl_net_ofi_test(void* req, int* done, int* size)
 
 	nccl_net_ofi_req_t *base_req = (nccl_net_ofi_req_t *)req;
 	int ret = base_req->test(base_req, done, size);
-	NCCL_OFI_WARN("nccl_net_ofi_test req=%p done=%d ret=%d", req, *done, ret);
+	//NCCL_OFI_WARN("nccl_net_ofi_test req=%p done=%d ret=%d", req, *done, ret);
 	return nccl_net_ofi_retval_translate(ret);
 }
 
