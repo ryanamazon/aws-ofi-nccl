@@ -522,6 +522,38 @@ ncclResult_t nccl_net_ofi_isend_v4(void* sendComm, void* data, int size,
 }
 
 
+ncclResult_t nccl_net_ofi_write_inline(void* comm, void* data, int size, void* dest, void *mhandle) {
+	ncclResult_t ret;
+        nccl_net_ofi_comm_t *base_comm =
+                (nccl_net_ofi_comm_t *)comm;
+
+
+	if (OFI_UNLIKELY(base_comm == NULL)) {
+		NCCL_OFI_WARN("Invalid comm object provided");
+		return ncclInternalError;
+	}
+
+	switch (base_comm->type) {
+		case NCCL_NET_OFI_SEND_COMM:;
+			nccl_net_ofi_send_comm_t *send_comm =
+				(nccl_net_ofi_send_comm_t *)base_comm;
+			ret = send_comm->write_inline_send(send_comm, data, size, dest, mhandle);
+			break;
+
+		case NCCL_NET_OFI_RECV_COMM:;
+			nccl_net_ofi_recv_comm_t *recv_comm =
+				(nccl_net_ofi_recv_comm_t *)base_comm;
+                        ret = recv_comm->write_inline_recv(recv_comm, data, size, dest, mhandle);
+			break;
+
+		default:
+			NCCL_OFI_WARN("Invalid communicator type=%d", base_comm->type);
+			ret = -EINVAL;
+	}
+
+	return nccl_net_ofi_retval_translate(ret);
+}
+
 ncclResult_t nccl_net_ofi_irecv(void* rComm, int n, void** buffers, int* sizes,
 				int *tags, void** mhandles, void** req)
 {

@@ -471,6 +471,40 @@ static int post_recv_conn(nccl_net_ofi_sendrecv_listen_comm_t *l_comm,
 	return rc;
 }
 
+static int write_inline(struct fid_ep *local_ep, fi_addr_t local_ep_addr, void *data, int size, void *dest, void *mhandle)
+{
+	if (OFI_UNLIKELY(size <= 0 || size >= NCCL_OFI_MAX_INLINE_WRITE_BYTES)) {
+		NCCL_OFI_WARN("Can not support %d inline bytes.  Requested: %d",
+			NCCL_OFI_MAX_INLINE_WRITE_BYTES, size);
+		return -EINVAL;
+	}
+
+	return fi_inject_write(local_ep,
+			       data,
+			       size,
+			       local_ep_addr,
+			       (uint64_t)dest,
+			       fi_mr_key(mhandle));
+}
+
+static int write_inline_recv(nccl_net_ofi_recv_comm_t *comm, void *data, int size, void *dest, void *mhandle)
+{
+	nccl_net_ofi_sendrecv_recv_comm_t *recv_comm = (nccl_net_ofi_sendrecv_recv_comm_t *)comm;
+	struct fid_ep *local_ep = recv_comm->local_ep;
+	fi_addr_t local_ep_addr = recv_comm->local_ep_addr;
+
+	return write_inline(local_ep, local_ep_addr, data, size, dest, mhandle);
+}
+
+static int write_inline_send(nccl_net_ofi_send_comm_t *comm, void *data, int size, void *dest, void *mhandle)
+{
+	nccl_net_ofi_sendrecv_send_comm_t *send_comm = (nccl_net_ofi_sendrecv_send_comm_t *)comm;
+	struct fid_ep *local_ep = send_comm->local_ep;
+	fi_addr_t local_ep_addr = send_comm->local_ep_addr;
+
+	return write_inline(local_ep, local_ep_addr, data, size, dest, mhandle);
+}
+
 /*
  * @brief	Registers memory region (both HOST and CUDA)
  *
@@ -527,7 +561,7 @@ static int register_mr_buffers(struct fid_domain *domain, struct fid_ep *ep,
 #endif
 #if HAVE_NEURON
 	case NCCL_PTR_NEURON:
-		mr_attr.access |= FI_REMOTE_READ;
+		mr_attr.access |= (FI_REMOTE_READ | FI_REMOTE_WRITE);
 		mr_attr.iface = FI_HMEM_NEURON;
 		/*
 		 * Store a sentinel; libfabric requires this to be initialized Libfabric
@@ -1155,6 +1189,7 @@ static int alloc_and_reg_flush_buff(struct fid_domain *domain, struct fid_ep *ep
 	return ret;
 }
 
+
 /*
  * @brief	Allocate and setup receive communicator object for a peer. This
  * 		prepares plugin to receive messages from the given peer.
@@ -1201,6 +1236,7 @@ static nccl_net_ofi_sendrecv_recv_comm_t *prepare_recv_comm(nccl_net_ofi_sendrec
 	r_comm->base.regMrDmaBuf = nccl_net_ofi_reg_mr_dma_buf_recv_comm;
 	r_comm->base.deregMr = dereg_mr_recv_comm;
 	r_comm->base.recv = recv;
+	r_comm->base.write_inline_recv = write_inline_recv;
 	r_comm->base.flush = flush;
 	r_comm->base.close = recv_close;
 	r_comm->tag = l_comm->tag;
@@ -1935,7 +1971,7 @@ static inline int create_send_comm(nccl_net_ofi_conn_handle_t *handle,
 	ret_s_comm->base.regMrDmaBuf = nccl_net_ofi_reg_mr_dma_buf_send_comm;
 	ret_s_comm->base.deregMr = dereg_mr_send_comm;
 	ret_s_comm->base.send = send;
-	ret_s_comm->base.write_inline = write_inline;
+	ret_s_comm->base.write_inline_send = write_inline_send;
 	ret_s_comm->base.close = send_close;
 	ret_s_comm->tag = tag;
 	ret_s_comm->local_ep = ep->ofi_ep;
