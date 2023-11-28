@@ -409,7 +409,13 @@ struct nccl_net_ofi_send_comm {
 	int (*send)(nccl_net_ofi_send_comm_t *send_comm, void *data, int size, int tag,
 			     nccl_net_ofi_mr_handle_t *mhandle, nccl_net_ofi_req_t **req);
 
-	int (*write_inline)(nccl_net_ofi_send_comm_t *send_comm, void *data, int size, void *dest, nccl_net_ofi_req_t **req);
+	/*
+	 * @brief 	Inline write to a peer address
+	 *
+	 * Perform write to peer address.  There is no request because return is immediate.
+	 *
+	 */
+	int (*write_inline_send)(nccl_net_ofi_send_comm_t *send_comm, void *data, int size, void *dest, void *mhandle);
 
 	int (*close)(nccl_net_ofi_send_comm_t *send_comm);
 };
@@ -452,6 +458,14 @@ struct nccl_net_ofi_recv_comm {
 
 	int (*flush)(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **data, int *sizes,
 			      nccl_net_ofi_mr_handle_t **mhandles, nccl_net_ofi_req_t **req);
+
+	/*
+	 * @brief 	Inline write to a peer address
+	 *
+	 * Perform write to peer address.  There is no request because return is immediate.
+	 *
+	 */
+	int (*write_inline_recv)(nccl_net_ofi_recv_comm_t *recv_comm, void *data, int size, void *dest, void *mhandle);
 
 	int (*close)(nccl_net_ofi_recv_comm_t *recv_comm);
 };
