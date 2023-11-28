@@ -93,7 +93,7 @@ typedef struct {
 	ncclResult_t (*irecv)(void* recvComm, void* data, int size, void* mhandle, void** request);
 	// Perform a flush/fence to make sure all data received with NCCL_PTR_CUDA is
 	// visible to the GPU
-	ncclResult_t (*iflush)(void* recvComm, void* data, int size, void* mhandle, void** request);
+	ncclResult_t (*iflush)(void* recvComm, void* data, int size, void* dest, void* mhandle, void *src_mhandle, void** request);
 	// Test whether a request is complete. If size is not NULL, it returns the
 	// number of bytes sent/received.
 	ncclResult_t (*test)(void* request, int* done, int* size);
