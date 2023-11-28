@@ -973,9 +973,9 @@ static int recv_close(nccl_net_ofi_recv_comm_t *recv_comm)
 	return ret;
 }
 
-static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers,
-				   int *sizes, nccl_net_ofi_mr_handle_t **mhandles,
-				   nccl_net_ofi_req_t **base_req)
+static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers, void **dests,
+                                  int *sizes, nccl_net_ofi_mr_handle_t **mhandles, nccl_net_ofi_mr_handle_t *src_mhandle,
+                                   nccl_net_ofi_req_t **base_req)
 {
 	int ret = 0;
 	nccl_net_ofi_sendrecv_recv_comm_t *r_comm =
@@ -1078,12 +1078,14 @@ static int flush(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **buffers,
 
 	/* Issue RDMA read */
 	do {
-		rc = fi_read(r_comm->local_ep, r_comm->flush_buff.host_buffer,
-			     r_comm->flush_buff.size,
-			     flush_mr_desc,
-			     r_comm->local_ep_addr,
-			     (uint64_t)(virt_addr_mr ? data : 0),
-			     cuda_key, &req->ctx);
+		rc = fi_write(r_comm->local_ep,
+			      buffers[0],
+			      sizes[0],
+			      fi_mr_desc((struct fid_mr *)src_mhandle),
+			      r_comm->local_ep_addr,
+			      (uint64_t)dests[0],
+			      fi_mr_key((struct fid_mr *)mhandles[0]),
+			      &req->ctx);
 		if (rc == 0) {
 			break;
 		} else if (rc == -FI_EAGAIN) {

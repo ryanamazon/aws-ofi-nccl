@@ -456,8 +456,7 @@ struct nccl_net_ofi_recv_comm {
 	int (*recv)(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **data, int *sizes, int *tags,
 			     nccl_net_ofi_mr_handle_t **mhandles, nccl_net_ofi_req_t **req);
 
-	int (*flush)(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **data, int *sizes,
-			      nccl_net_ofi_mr_handle_t **mhandles, nccl_net_ofi_req_t **req);
+	int (*flush)(nccl_net_ofi_recv_comm_t *recv_comm, int n, void **data, void **dests, int *sizes, void **mhandles, void *src_mhandle, void **req);
 
 	/*
 	 * @brief 	Inline write to a peer address
